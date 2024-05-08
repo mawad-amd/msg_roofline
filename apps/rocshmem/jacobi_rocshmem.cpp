@@ -2,6 +2,11 @@
 #include "commons/mpi.hpp"
 #include "commons/rocshmem.hpp"
 
+#define HAVE_ROCPRIM
+
+#ifdef HAVE_ROCPRIM
+#include <rocprim/block/block_reduce.hpp>
+#endif
 
 // convert NVSHMEM_SYMMETRIC_SIZE string to long long unsigned int
 long long unsigned int parse_nvshmem_symmetric_size(char *value) {
@@ -81,6 +86,12 @@ __global__ void jacobi_kernel(real* __restrict__ const a_new, const real* __rest
                               const int iy_end, const int nx, const int top_pe, const int top_iy,
                               const int bottom_pe, const int bottom_iy) {
 
+#ifdef HAVE_ROCPRIM
+    using BlockReduce = rocprim::block_reduce<real, BLOCK_DIM_X,
+            rocprim::block_reduce_algorithm::using_warp_reduce, BLOCK_DIM_Y>;
+    __shared__ typename BlockReduce::storage_type temp_storage;
+#endif  // HAVE_ROCPRIM
+
     int iy = blockIdx.y * blockDim.y + threadIdx.y + iy_start;
     int ix = blockIdx.x * blockDim.x + threadIdx.x + 1;
     real local_l2_norm = 0.0;
@@ -109,7 +120,14 @@ __global__ void jacobi_kernel(real* __restrict__ const a_new, const real* __rest
                                    min(blockDim.x, nx - 1 - block_ix), bottom_pe);
     }
 
+#ifdef HAVE_ROCPRIM
+    real block_l2_norm;
+    BlockReduce().reduce(local_l2_norm, block_l2_norm, temp_storage);
+    if (0 == threadIdx.y && 0 == threadIdx.x) atomicAdd(l2_norm, block_l2_norm);
+#else
     atomicAdd(l2_norm, local_l2_norm);
+#endif  // HAVE_ROCPRIM
+
 }
 
 double single_gpu(const int nx, const int ny, const int iter_max, real* const a_ref_h,

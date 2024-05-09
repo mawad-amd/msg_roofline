@@ -32,16 +32,16 @@ set(CMAKE_CXX_EXTENSIONS ON)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS_DEBUG "-O0 -ggdb")
-
+set(CMAKE_CXX_FLAGS_RELEASE "-munsafe-fp-atomics -O3")
 ###############################################################################
 # DEFAULT BUILD TYPE
 ###############################################################################
 if(NOT CMAKE_BUILD_TYPE)
-  message(STATUS "CMAKE_BUILD_TYPE unspecified: generating RelWithDebInfo build")
+message(STATUS "CMAKE_BUILD_TYPE unspecified: generating Release build")
 
-  set(
+set(
     CMAKE_BUILD_TYPE
-    "RelWithDebInfo"
+    "Release"
     CACHE
       STRING
         "build type: Release, Debug, RelWithDebInfo, MinSizeRel"

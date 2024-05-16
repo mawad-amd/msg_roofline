@@ -249,8 +249,10 @@ int main(int argc, char* argv[]) {
     hipStream_t reset_l2_norm_stream;
     hipEvent_t compute_done[2];
     hipEvent_t reset_l2_norm_done[2];
-
+    hipEvent_t communication_event_timers[2];
     l2_norm_buf l2_norm_bufs[2];
+
+    float communication_milliseconds{0.0f};
 
     status = hipHostMalloc(&a_ref_h, nx * ny * sizeof(real));
     status = hipHostMalloc(&a_h, nx * ny * sizeof(real));
@@ -315,6 +317,10 @@ int main(int argc, char* argv[]) {
     status = hipEventCreateWithFlags(&compute_done[1], hipEventDisableTiming);
     status = hipEventCreateWithFlags(&reset_l2_norm_done[0], hipEventDisableTiming);
     status = hipEventCreateWithFlags(&reset_l2_norm_done[1], hipEventDisableTiming);
+    
+    // TODO: Error checking
+    status = hipEventCreate(&communication_event_timers[0]);
+    status = hipEventCreate(&communication_event_timers[1]);
 
     for (int i = 0; i < 2; ++i) {
         status = hipEventCreateWithFlags(&l2_norm_bufs[i].copy_done, hipEventDisableTiming);
@@ -378,7 +384,9 @@ int main(int argc, char* argv[]) {
            of barrier that just synchronizes with the neighbor PEs that is the PEs with whom a PE
            communicates. This will perform faster than a global barrier that would do redundant-nccheck
            synchronization for this application. */
+        hipEventRecord(communication_event_timers[0], compute_stream);
         syncneighborhood_kernel<<<1, 4, 0, compute_stream>>>(mype, npes, sync_arr, synccounter);
+        hipEventRecord(communication_event_timers[1], compute_stream);
         synccounter++;
 
         // perform L2 norm calculation
@@ -412,6 +420,15 @@ int main(int argc, char* argv[]) {
 
         std::swap(a_new, a);
         iter++;
+
+        float iter_communication_milliseconds{0.0f};
+
+        hipEventSynchronize(communication_event_timers[1]);
+        hipEventElapsedTime(&iter_communication_milliseconds,
+                            communication_event_timers[0],
+                            communication_event_timers[1]);
+
+        communication_milliseconds += iter_communication_milliseconds;
     }
 
     status = hipDeviceSynchronize();
@@ -445,8 +462,8 @@ int main(int argc, char* argv[]) {
 
     if (!mype && result_correct) {
         if (csv) {
-            printf("rocshmem_opt, %d, %d, %d, %d, %d, 1, %f, %f\n", nx, ny, iter_max, nccheck, npes,
-                   (stop - start), runtime_serial);
+            printf("rocshmem_opt, %d, %d, %d, %d, %d, 1, %f, %f, %f\n", nx, ny, iter_max, nccheck, npes,
+                   (stop - start), runtime_serial, communication_milliseconds * 0.001f);
         } else {
             printf("Num GPUs: %d.\n", npes);
             printf(
